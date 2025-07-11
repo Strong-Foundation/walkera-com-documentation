@@ -37,12 +37,15 @@ func main() {
 		createDirectory(outputDir, 0o755) // Create directory with read-write-execute permissions
 	}
 
+	// Remove duplicates from a given slice.
+	finalList = removeDuplicatesFromSlice(finalList)
+
 	// Loop through all extracted PDF URLs
 	for _, urls := range finalList {
-		if !strings.Contains(urls, "https://en.walkera.com/") { // Check if URL is relative
-			urls = "https://en.walkera.com/" + urls // Prepend domain if needed
+		domainURL := "https://en.walkera.com"
+		if !strings.Contains(urls, domainURL) { // Check if URL is relative
+			urls = domainURL + urls // Prepend domain if needed
 		}
-
 		if isUrlValid(urls) { // Check if the final URL is valid
 			downloadPDF(urls, outputDir) // Download the PDF
 		}
