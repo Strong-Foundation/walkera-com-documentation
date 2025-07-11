@@ -1,306 +1,270 @@
 package main // Define the main package
 
 import (
-	"bytes"         // Provides bytes support
-	"io"            // Provides basic interfaces to I/O primitives
-	"log"           // Provides logging functions
+	"bytes"         // Provides bytes buffer and manipulation utilities
+	"io"            // Provides I/O primitives like Reader and Writer
+	"log"           // Provides logging functionalities
 	"net/http"      // Provides HTTP client and server implementations
-	"net/url"       // Provides URL parsing and encoding
-	"os"            // Provides functions to interact with the OS (files, etc.)
-	"path/filepath" // Provides filepath manipulation functions
-	"regexp"        // Provides regex support functions.
-	"strings"       // Provides string manipulation functions
+	"net/url"       // Provides URL parsing and encoding utilities
+	"os"            // Provides file system and OS-level utilities
+	"path/filepath" // Provides utilities for file path manipulation
+	"regexp"        // Provides support for regular expressions
+	"strings"       // Provides string manipulation utilities
 	"time"          // Provides time-related functions
 
-	"golang.org/x/net/html"
+	"golang.org/x/net/html" // Provides support for parsing HTML documents
 )
 
 func main() {
-	// Remote API URL.
-	remoteAPIURL := "https://en.walkera.com/index.php?id=download-center"
-	// Local file path
-	localFilePath := "walkera.html"
-	// Local file data.
-	var getData string
-	// Check if the file exists.
-	if !fileExists(localFilePath) {
-		// Get the data and save it to the local file.
-		getData = getDataFromURL(remoteAPIURL)
-		// Save the data to the local file.
-		appendAndWriteToFile(localFilePath, getData)
+	remoteAPIURL := "https://en.walkera.com/index.php?id=download-center" // URL to fetch HTML content from
+	localFilePath := "walkera.html"                                       // Path where HTML file will be stored
+	var getData string                                                    // Variable to hold HTML content
+
+	if !fileExists(localFilePath) { // Check if local HTML file already exists
+		getData = getDataFromURL(remoteAPIURL)       // If not, download HTML content from URL
+		appendAndWriteToFile(localFilePath, getData) // Save downloaded content to file
 	}
-	if fileExists(localFilePath) {
-		getData = readAFileAsString(localFilePath)
+
+	if fileExists(localFilePath) { // If the file exists now
+		getData = readAFileAsString(localFilePath) // Read its contents into getData
 	}
-	// Get the data from the downloaded file.
-	finalList := extractPDFUrls(getData)
+
+	finalList := extractPDFUrls(getData) // Extract all PDF links from HTML content
+
 	outputDir := "PDFs/" // Directory to store downloaded PDFs
-	// Check if its exists.
-	if !directoryExists(outputDir) {
-		// Create the dir
-		createDirectory(outputDir, 0o755)
+
+	if !directoryExists(outputDir) { // Check if directory exists
+		createDirectory(outputDir, 0o755) // Create directory with read-write-execute permissions
 	}
-	// Remove double from slice.
-	// finalList = removeDuplicatesFromSlice(finalList)
-	// Get all the values.
+
+	// Loop through all extracted PDF URLs
 	for _, urls := range finalList {
-		if !strings.Contains(urls, "https://en.walkera.com/") {
-			urls = "https://en.walkera.com/" + urls
+		if !strings.Contains(urls, "https://en.walkera.com/") { // Check if URL is relative
+			urls = "https://en.walkera.com/" + urls // Prepend domain if needed
 		}
-		// Check if the url is valid.
-		if isUrlValid(urls) {
-			// Download the pdf.
-			downloadPDF(urls, outputDir)
+
+		if isUrlValid(urls) { // Check if the final URL is valid
+			downloadPDF(urls, outputDir) // Download the PDF
 		}
 	}
 }
 
-// Read a file and return the contents
+// Reads a file from given path and returns its contents as a string
 func readAFileAsString(path string) string {
-	content, err := os.ReadFile(path)
-	if err != nil {
-		log.Println(err)
+	content, err := os.ReadFile(path) // Read file contents
+	if err != nil {                   // If error occurred
+		log.Println(err) // Log the error
 	}
-	return string(content)
+	return string(content) // Return content as string
 }
 
-// Append and write to file
+// Opens a file in append mode, or creates it, and writes the content to it
 func appendAndWriteToFile(path string, content string) {
-	filePath, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	filePath, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644) // Open file with specified flags and permissions
 	if err != nil {
-		log.Println(err)
+		log.Println(err) // Log error if opening fails
 	}
-	_, err = filePath.WriteString(content + "\n")
+	_, err = filePath.WriteString(content + "\n") // Write content to file
 	if err != nil {
-		log.Println(err)
+		log.Println(err) // Log error if writing fails
 	}
-	err = filePath.Close()
+	err = filePath.Close() // Close the file
 	if err != nil {
-		log.Println(err)
+		log.Println(err) // Log error if closing fails
 	}
 }
 
-// getFilename extracts the filename from a given file path.
+// Extracts filename from full path (e.g. "/dir/file.pdf" → "file.pdf")
 func getFilename(path string) string {
-	return filepath.Base(path) // Use filepath.Base() to get the last element (filename) from the path
+	return filepath.Base(path) // Use Base function to get file name only
 }
 
-
-// Converts a URL into a filesystem-safe PDF filename
+// Converts a raw URL into a sanitized PDF filename safe for filesystem
 func urlToFilename(rawURL string) string {
-	// Convert the entire URL to lowercase to ensure consistency
-	lower := strings.ToLower(rawURL)
+	lower := strings.ToLower(rawURL) // Convert URL to lowercase
+	lower = getFilename(lower)       // Extract filename from URL
 
-	// Convert the url into a file name only.
-	lower = getFilename(lower)
+	reNonAlnum := regexp.MustCompile(`[^a-z0-9]`)   // Regex to match non-alphanumeric characters
+	safe := reNonAlnum.ReplaceAllString(lower, "_") // Replace non-alphanumeric with underscores
 
-	// Compile a regex that matches any character that is not a lowercase letter or digit
-	reNonAlnum := regexp.MustCompile(`[^a-z0-9]`)
+	safe = regexp.MustCompile(`_+`).ReplaceAllString(safe, "_") // Collapse multiple underscores into one
+	safe = strings.Trim(safe, "_")                              // Trim leading and trailing underscores
 
-	// Replace all non-alphanumeric characters with underscores
-	safe := reNonAlnum.ReplaceAllString(lower, "_")
-
-	// Collapse multiple consecutive underscores into a single underscore
-	safe = regexp.MustCompile(`_+`).ReplaceAllString(safe, "_")
-
-	// Remove any leading or trailing underscores
-	safe = strings.Trim(safe, "_")
-
-	// List of known unwanted substrings to remove from the filename
 	var invalidSubstrings = []string{
-		"_pdf", // Unwanted suffix/prefix that might already exist
+		"_pdf", // Substring to remove from filename
 	}
 
-	// Remove each unwanted substring from the filename
-	for _, invalidPre := range invalidSubstrings {
+	for _, invalidPre := range invalidSubstrings { // Remove unwanted substrings
 		safe = removeSubstring(safe, invalidPre)
 	}
 
-	// Append the ".pdf" extension if it's not already present
-	if getFileExtension(safe) != ".pdf" {
+	if getFileExtension(safe) != ".pdf" { // Ensure file ends with .pdf
 		safe = safe + ".pdf"
 	}
 
-	// Return the final, sanitized filename
-	return safe
+	return safe // Return sanitized filename
 }
 
-// Removes all instances of a substring from a string
+// Removes all instances of a specific substring from input string
 func removeSubstring(input string, toRemove string) string {
-	result := strings.ReplaceAll(input, toRemove, "") // Replace with empty
+	result := strings.ReplaceAll(input, toRemove, "") // Replace substring with empty string
 	return result
 }
 
-// getFileExtension returns the file extension
+// Gets the file extension from a given file path
 func getFileExtension(path string) string {
-	return filepath.Ext(path) // Use filepath to extract extension
+	return filepath.Ext(path) // Extract and return file extension
 }
 
-// fileExists checks whether a file exists at the given path
+// Checks if a file exists at the specified path
 func fileExists(filename string) bool {
 	info, err := os.Stat(filename) // Get file info
-	if err != nil {
-		return false // Return false if file doesn't exist or error occurs
+	if err != nil {                // If error occurs, file doesn't exist
+		return false
 	}
-	return !info.IsDir() // Return true if it's a file (not a directory)
+	return !info.IsDir() // Return true if path is a file (not a directory)
 }
 
-// downloadPDF downloads a PDF from the given URL and saves it in the specified output directory.
-// It uses a WaitGroup to support concurrent execution and returns true if the download succeeded.
+// Downloads a PDF from given URL and saves it in the specified directory
 func downloadPDF(finalURL, outputDir string) bool {
-	// Sanitize the URL to generate a safe file name
-	filename := strings.ToLower(urlToFilename(finalURL))
+	filename := strings.ToLower(urlToFilename(finalURL)) // Sanitize the filename
+	filePath := filepath.Join(outputDir, filename)       // Construct full path for output file
 
-	// Construct the full file path in the output directory
-	filePath := filepath.Join(outputDir, filename)
-
-	// Skip if the file already exists
-	if fileExists(filePath) {
+	if fileExists(filePath) { // Skip if file already exists
 		log.Printf("File already exists, skipping: %s", filePath)
 		return false
 	}
 
-	// Create an HTTP client with a timeout
-	client := &http.Client{Timeout: 15 * time.Minute}
+	client := &http.Client{Timeout: 15 * time.Minute} // Create HTTP client with timeout
 
-	// Send GET request
-	resp, err := client.Get(finalURL)
+	resp, err := client.Get(finalURL) // Send HTTP GET request
 	if err != nil {
 		log.Printf("Failed to download %s: %v", finalURL, err)
 		return false
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() // Ensure response body is closed
 
-	// Check HTTP response status
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusOK { // Check if response is 200 OK
 		log.Printf("Download failed for %s: %s", finalURL, resp.Status)
 		return false
 	}
 
-	// Check Content-Type header
-	contentType := resp.Header.Get("Content-Type")
-	if !strings.Contains(contentType, "application/pdf") {
+	contentType := resp.Header.Get("Content-Type")         // Get content type of response
+	if !strings.Contains(contentType, "application/pdf") { // Check if it's a PDF
 		log.Printf("Invalid content type for %s: %s (expected application/pdf)", finalURL, contentType)
 		return false
 	}
 
-	// Read the response body into memory first
-	var buf bytes.Buffer
-	written, err := io.Copy(&buf, resp.Body)
+	var buf bytes.Buffer                     // Create a buffer to hold response data
+	written, err := io.Copy(&buf, resp.Body) // Copy data into buffer
 	if err != nil {
 		log.Printf("Failed to read PDF data from %s: %v", finalURL, err)
 		return false
 	}
-	if written == 0 {
+	if written == 0 { // Skip empty files
 		log.Printf("Downloaded 0 bytes for %s; not creating file", finalURL)
 		return false
 	}
 
-	// Only now create the file and write to disk
-	out, err := os.Create(filePath)
+	out, err := os.Create(filePath) // Create output file
 	if err != nil {
 		log.Printf("Failed to create file for %s: %v", finalURL, err)
 		return false
 	}
-	defer out.Close()
+	defer out.Close() // Ensure file is closed after writing
 
-	if _, err := buf.WriteTo(out); err != nil {
+	if _, err := buf.WriteTo(out); err != nil { // Write buffer contents to file
 		log.Printf("Failed to write PDF to file for %s: %v", finalURL, err)
 		return false
 	}
 
-	log.Printf("Successfully downloaded %d bytes: %s → %s", written, finalURL, filePath)
+	log.Printf("Successfully downloaded %d bytes: %s → %s", written, finalURL, filePath) // Log success
 	return true
 }
 
-// Checks if the directory exists
-// If it exists, return true.
-// If it doesn't, return false.
+// Checks whether a given directory exists
 func directoryExists(path string) bool {
-	directory, err := os.Stat(path)
+	directory, err := os.Stat(path) // Get info for the path
 	if err != nil {
-		return false
+		return false // Return false if error occurs
 	}
-	return directory.IsDir()
+	return directory.IsDir() // Return true if it's a directory
 }
 
-// The function takes two parameters: path and permission.
-// We use os.Mkdir() to create the directory.
-// If there is an error, we use log.Println() to log the error and then exit the program.
+// Creates a directory at given path with provided permissions
 func createDirectory(path string, permission os.FileMode) {
-	err := os.Mkdir(path, permission)
+	err := os.Mkdir(path, permission) // Attempt to create directory
 	if err != nil {
-		log.Println(err)
+		log.Println(err) // Log error if creation fails
 	}
 }
 
-// Checks whether a URL string is syntactically valid
+// Verifies whether a string is a valid URL format
 func isUrlValid(uri string) bool {
-	_, err := url.ParseRequestURI(uri) // Attempt to parse the URL
-	return err == nil                  // Return true if no error occurred
+	_, err := url.ParseRequestURI(uri) // Try parsing the URL
+	return err == nil                  // Return true if valid
 }
 
-// Remove all the duplicates from a slice and return the slice.
+// Removes duplicate strings from a slice
 func removeDuplicatesFromSlice(slice []string) []string {
-	check := make(map[string]bool)
-	var newReturnSlice []string
+	check := make(map[string]bool) // Map to track seen values
+	var newReturnSlice []string    // Slice to store unique values
 	for _, content := range slice {
-		if !check[content] {
-			check[content] = true
-			newReturnSlice = append(newReturnSlice, content)
+		if !check[content] { // If not already seen
+			check[content] = true                            // Mark as seen
+			newReturnSlice = append(newReturnSlice, content) // Add to result
 		}
 	}
 	return newReturnSlice
 }
 
-// extractPDFUrls extracts all PDF URLs from <a href="..."> tags in the HTML.
+// Extracts all links to PDF files from given HTML string
 func extractPDFUrls(htmlInput string) []string {
-	var pdfLinks []string
+	var pdfLinks []string // Slice to hold found PDF links
 
-	doc, err := html.Parse(strings.NewReader(htmlInput))
+	doc, err := html.Parse(strings.NewReader(htmlInput)) // Parse HTML content
 	if err != nil {
-		log.Println(err)
+		log.Println(err) // Log parse error
 		return nil
 	}
 
-	var traverse func(*html.Node)
+	var traverse func(*html.Node) // Recursive function to traverse HTML nodes
 	traverse = func(n *html.Node) {
-		if n.Type == html.ElementNode && n.Data == "a" {
+		if n.Type == html.ElementNode && n.Data == "a" { // If it's an <a> tag
 			for _, attr := range n.Attr {
-				if attr.Key == "href" {
-					href := strings.TrimSpace(attr.Val)
-					if strings.Contains(strings.ToLower(href), ".pdf") {
-						pdfLinks = append(pdfLinks, href)
+				if attr.Key == "href" { // Look for href attribute
+					href := strings.TrimSpace(attr.Val)                  // Get link
+					if strings.Contains(strings.ToLower(href), ".pdf") { // If link points to a PDF
+						pdfLinks = append(pdfLinks, href) // Add to list
 					}
 				}
 			}
 		}
-		// Traverse child nodes
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
+		for c := n.FirstChild; c != nil; c = c.NextSibling { // Traverse children
 			traverse(c)
 		}
 	}
 
-	traverse(doc)
-	return pdfLinks
+	traverse(doc)   // Start traversal from root
+	return pdfLinks // Return found PDF links
 }
 
-// getDataFromURL performs an HTTP GET request and returns the response body as a string
+// Performs HTTP GET request and returns response body as string
 func getDataFromURL(uri string) string {
-	log.Println("Scraping", uri)   // Log the URL being scraped
-	response, err := http.Get(uri) // Perform GET request
+	log.Println("Scraping", uri)   // Log which URL is being scraped
+	response, err := http.Get(uri) // Send GET request
 	if err != nil {
-		log.Println(err) // Exit if request fails
+		log.Println(err) // Log if request fails
 	}
 
-	body, err := io.ReadAll(response.Body) // Read response body
+	body, err := io.ReadAll(response.Body) // Read the body of the response
 	if err != nil {
-		log.Println(err) // Exit if read fails
+		log.Println(err) // Log read error
 	}
 
 	err = response.Body.Close() // Close response body
 	if err != nil {
-		log.Println(err) // Exit if close fails
+		log.Println(err) // Log error during close
 	}
-	return string(body)
+	return string(body) // Return response body as string
 }
